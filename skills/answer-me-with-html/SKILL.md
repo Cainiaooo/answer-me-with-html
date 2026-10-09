@@ -1,6 +1,7 @@
 ---
 name: answer-me-with-html
 argument-hint: "[config [key value] | clean | update]"
+disable-model-invocation: true
 description: >-
   Turns an answer into a one-page visual HTML explainer: the model writes a short Markdown draft and
   the bundled CLI builds one page. Use it proactively and liberally, without being asked, whenever a
