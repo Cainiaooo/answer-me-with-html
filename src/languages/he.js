@@ -10,6 +10,12 @@ export default {
     serif: '"Noto Serif Hebrew", "Frank Ruehl CLM", David, "Times New Roman"',
   },
   ui: {
+    remark: {
+      button: 'סימון',
+      hint: 'הערה (אופציונלי)', save: 'שמירה', remove: 'הסרה',
+      section: 'סימונים',
+      kinds: { suggestion: 'הצעה', keep: 'להשאיר', question: 'שאלה', concern: 'חשש' },
+    },
     theme: 'ערכת עיצוב', modeLabel: 'מצב',
     mode: { auto: 'אוטומטי', light: 'בהיר', dark: 'כהה' },
     copy: 'העתקת המקור', done: 'הועתק ✓', copyCode: 'העתקה',
@@ -35,5 +41,8 @@ export default {
   deltaCounts: { added: 'נוספו', removed: 'הוסרו', changed: 'שונו' },
   // The render time under the page reads day.month.year, the Israeli way.
   dateOrder: 'dmy',
-  videoUi: { play: 'הפעלה', pause: 'השהיה', chapters: 'פרקים', speed: 'מהירות', export: 'ייצוא' },
+  videoUi: {
+    play: 'הפעלה', pause: 'השהיה', chapters: 'פרקים', speed: 'מהירות', export: 'ייצוא',
+    drawn: 'שורטט', date: 'תאריך', scenes: 'סצנות', duration: 'משך', sheet: 'גיליון {n} מתוך {total}',
+  },
 };

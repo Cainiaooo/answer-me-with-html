@@ -4,10 +4,12 @@ import { Readable, Writable } from 'node:stream';
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { spawn } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
 import { parseVideo, estimateSeconds, buildTimeline, allBeats, TIMING } from '../src/video/script.js';
 import { renderVideo, captionHtml, formatClock } from '../src/video/render.js';
 import { readWav, wav, mixTrack, trimSilence, synthAll, pickProvider, parseMacVoices, macVoiceFor, parseEspeakVoices, espeakVoiceFor, TtsError, SAMPLE_RATE } from '../src/video/tts.js';
-import { findChrome } from '../src/video/export.js';
+import { findChrome, connect, devtoolsUrl } from '../src/video/export.js';
 import { renderDoc } from '../src/render.js';
 import { ParseError } from '../src/parse.js';
 import { COMPONENTS } from '../src/components/index.js';
@@ -478,7 +480,7 @@ test('video theme: blueprint light by default; a draft may set 3b1b; the command
   const def = await renderVideo(SRC);
   assert.match(def.html, /data-theme="blueprint" data-mode="light" data-style="80" data-video/);
   assert.match(def.html, /class="amv-sheet"/, 'sheet frame');
-  assert.match(def.html, /SHEET 01 \/ 02/);
+  assert.match(def.html, /图 01 \/ 02/); // lang-ok: the Chinese scene header under test
   const dark = await renderVideo(`---\ntheme: 3b1b\n---\n${SRC.split('---\n').slice(2).join('---\n')}`);
   assert.match(dark.html, /data-theme="3b1b" data-mode="dark"/);
   const cli = await renderVideo(SRC, { overrides: { theme: 'shadcn', mode: 'dark' } });
@@ -497,6 +499,40 @@ test('player: a chapter strip, a tick per scene and a playback speed button, in 
   const en = await renderVideo(`---\nlang: en\n---\n## One\n\`\`\`flow\nA -> B\n\`\`\`\n> A line.\n\n## Two\n- point\n> Another line.\n`);
   assert.match(en.html, /aria-label="Chapters"/);
   assert.match(en.html, /data-speed="Speed"/);
+});
+
+// The title block cells and the scene header of the video are labels of the draft language (#172).
+const sheetLabels = async (lang, body = '## One\n- point\n> A line.\n\n## Two\n- point\n> Another line.\n') => {
+  const { html } = await renderVideo(`${lang ? `---\nlang: ${lang}\n---\n` : ''}${body}`);
+  return {
+    cells: [...html.matchAll(/<div><b>([^<]*)<\/b><span>/g)].map((m) => m[1]),
+    heads: [...html.matchAll(/<span class="amv-scene-meta">([^<]*)<\/span>/g)].map((m) => m[1]),
+  };
+};
+
+test('player: the title block and the scene header are written in the draft language', async () => {
+  assert.deepEqual(await sheetLabels('en'), { cells: ['DRAWN', 'DATE', 'SCENES', 'DURATION'], heads: ['SHEET 01 / 02', 'SHEET 02 / 02'] });
+  assert.deepEqual(await sheetLabels('zh'), { cells: ['制图', '日期', '场景', '时长'], heads: ['图 01 / 02', '图 02 / 02'] }); // lang-ok: Chinese labels under test
+  assert.deepEqual(await sheetLabels('zh-TW'), { cells: ['製圖', '日期', '場景', '時長'], heads: ['圖 01 / 02', '圖 02 / 02'] }); // lang-ok: Chinese labels under test
+  assert.deepEqual(await sheetLabels('ja'), { cells: ['作図', '日付', 'シーン', '再生時間'], heads: ['シート 01 / 02', 'シート 02 / 02'] }); // lang-ok: Japanese labels under test
+  assert.deepEqual(await sheetLabels('he'), { cells: ['שורטט', 'תאריך', 'סצנות', 'משך'], heads: ['גיליון 01 מתוך 02', 'גיליון 02 מתוך 02'] });
+});
+
+test('player: Hebrew labels are set in the sans font without letter spacing, and a left-to-right video keeps the monospace label', async () => {
+  const rule = /html\[dir="rtl"\]\[data-video\] \.amv-titleblock b, html\[dir="rtl"\]\[data-video\] \.amv-scene-meta \{ font-family: var\(--font-sans\); letter-spacing: normal; \}/;
+  assert.match((await renderVideo('---\nlang: he\n---\n## א\n- ישן\n> משפט.\n')).html, rule);
+  assert.doesNotMatch((await renderVideo('---\nlang: en\n---\n## One\n- point\n> A line.\n')).html, rule);
+});
+
+test('player: a draft whose language has no file keeps the English title block and scene header', async () => {
+  const english = { cells: ['DRAWN', 'DATE', 'SCENES', 'DURATION'], heads: ['SHEET 01 / 02', 'SHEET 02 / 02'] };
+  assert.deepEqual(await sheetLabels('fr'), english);
+  assert.deepEqual(await sheetLabels(''), english, 'an English draft that declares no language');
+});
+
+test('player: the labels follow the language the draft is detected as, and carry the numbers the language places', async () => {
+  const detected = await sheetLabels('', '## 握手\n- 客户端\n> 客户端向服务器发送请求。\n');
+  assert.deepEqual(detected, { cells: ['制图', '日期', '场景', '时长'], heads: ['图 01 / 01'] }); // lang-ok: Chinese labels under test
 });
 
 test('player: the export button carries the page language, and the page carries the encoder and the writer', async () => {
@@ -607,6 +643,18 @@ title: 补丁视频
   assert.match(after, /新画面|新旁白/);
   assert.doesNotMatch(after, /<main class="am-(sheet|doc)/);
   assert.doesNotMatch(after, /旧画面/);
+});
+
+test('cli patch: a Hebrew video page is still right to left after one scene changes', async () => {
+  const vid = '---\nlang: he\n---\n## א ראשון\n- ישן\n> משפט ישן.\n\n## ב שני\n- נשאר\n> משפט שני.\n';
+  const made = await run(['video', '-', '-o', 'vid-he.html', '--voice', 'off'], { stdin: vid });
+  assert.equal(made.code, 0, made.err);
+  const patched = await run(['patch', 'vid-he.html', '--panel', 'א ראשון'], { stdin: '## א ראשון\n- חדש\n> משפט חדש.\n' });
+  assert.equal(patched.code, 0, patched.err);
+  const after = readFileSync(join(dir, 'vid-he.html'), 'utf8');
+  assert.match(after, /<html lang="he" dir="rtl" [^>]*data-video>/);
+  assert.match(after, /חדש/);
+  assert.doesNotMatch(after, /ישן/);
 });
 
 test('cli help video / config voice', async () => {
@@ -762,3 +810,64 @@ test('ElevenLabs: defaults to eleven_v4_turbo, ELEVENLABS_MODEL_ID changes the m
     globalThis.fetch = realFetch;
   }
 });
+
+// A Hebrew video: the player draws it right to left, the chapter strip keeps the active chapter in view, and both exports work.
+const HEBREW = '---\ntitle: לחיצת יד\nlang: he\n---\n## א שלום\n```flow LR\nלקוח -> שרת: SYN\n```\n> [לקוח] שולח בקשה לשרת.\n';
+const hebrewChapters = (n) => `---\nlang: he\n---\n${Array.from({ length: n }, (_, i) => `## פרק מספר ${i + 1} עם כותרת ארוכה\n- נקודה\n> משפט בפרק ${i + 1}.\n`).join('\n')}`;
+const englishChapters = (n) => `---\nlang: en\n---\n${Array.from({ length: n }, (_, i) => `## Chapter number ${i + 1} with a long title\n- point\n> A sentence in chapter ${i + 1}.\n`).join('\n')}`;
+
+test('e2e: a Hebrew video exports to MP4 and WebM at 1080p', { skip: !E2E, timeout: 180000 }, async () => {
+  const mp4 = await run(['video', '-', '-o', 'e2e-he.html', '--mp4'], { stdin: HEBREW, ttsProvider: fakeProvider() });
+  assert.equal(mp4.code, 0, mp4.err);
+  const { execFileSync } = await import('node:child_process');
+  assert.match(execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'stream=codec_type,width,height', '-of', 'csv=p=0', join(dir, 'e2e-he.mp4')], { encoding: 'utf8' }), /video,1920,1080/);
+  const webm = await run(['video', '-', '-o', 'e2e-he-webm.html', '--webm'], { stdin: HEBREW, ttsProvider: fakeProvider() });
+  assert.equal(webm.code, 0, webm.err);
+  assert.match(readFileSync(join(dir, 'e2e-he-webm.webm')).subarray(0, 64).toString('latin1'), /webm/);
+});
+
+for (const [name, draft] of [['Hebrew', hebrewChapters], ['English', englishChapters]]) {
+test(`e2e: the chapter strip of a ${name}-language video scrolls to the active chapter`, { skip: !E2E || !findChrome() || typeof WebSocket === 'undefined' }, async () => {
+  const r = await renderVideo(draft(14));
+  const file = join(dir, `chapters-${name}.html`);
+  (await import('node:fs')).writeFileSync(file, r.html);
+  const profile = mkdtempSync(join(tmpdir(), 'am-chapters-'));
+  const chrome = spawn(findChrome(), ['--headless=new', '--remote-debugging-port=0', `--user-data-dir=${profile}`, '--no-first-run', '--mute-audio', '--force-device-scale-factor=1', '--window-size=1000,700', 'about:blank'], { stdio: ['ignore', 'ignore', 'pipe'] });
+  let cdp;
+  try {
+    cdp = await connect(await devtoolsUrl(chrome));
+    const { targetId } = await cdp.send('Target.createTarget', { url: 'about:blank' });
+    const { sessionId } = await cdp.send('Target.attachToTarget', { targetId, flatten: true });
+    await cdp.send('Page.enable', {}, sessionId);
+    const loaded = cdp.once('Page.loadEventFired');
+    await cdp.send('Page.navigate', { url: pathToFileURL(file).href }, sessionId);
+    await loaded;
+    const { result } = await cdp.send('Runtime.evaluate', {
+      awaitPromise: true,
+      returnByValue: true,
+      expression: `(async () => {
+        window.render(25);
+        await new Promise((r) => setTimeout(r, 1500));
+        const bar = document.querySelector('.amv-chapters').getBoundingClientRect();
+        const chip = document.querySelector('.amv-chap[aria-current]').getBoundingClientRect();
+        return { inView: chip.left >= bar.left && chip.right <= bar.right, offCentre: Math.abs((chip.left + chip.right) / 2 - (bar.left + bar.right) / 2) };
+      })()`,
+    }, sessionId);
+    assert.equal(result.value.inView, true, 'the active chip is inside the strip');
+    assert.ok(result.value.offCentre < 2, `the chip is centred (off by ${result.value.offCentre} px)`);
+  } finally {
+    cdp?.close();
+    await new Promise((resolve) => {
+      const timer = setTimeout(resolve, 3000);
+      chrome.once('exit', () => { clearTimeout(timer); resolve(); });
+      chrome.kill();
+    });
+    // Chrome helper processes can still write to the profile after the main process exits (#74); a leftover directory is not a failure.
+    try {
+      rmSync(profile, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 });
+    } catch (e) {
+      console.warn(`Could not remove ${profile}: ${e.message}`);
+    }
+  }
+});
+}

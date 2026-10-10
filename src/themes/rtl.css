@@ -14,6 +14,8 @@ html[dir="rtl"] .am-colophon, html[dir="rtl"] .am-reply textarea {
   font-family: var(--font-sans); letter-spacing: normal; text-transform: none;
 }
 html[dir="rtl"] .am-head h1 { letter-spacing: normal; }
+/* The annotated sentence is set in the sans font too; src/components/annot.js measures the placement of its notes in that font. */
+html[dir="rtl"] .am-annot-line { font-family: var(--font-sans); }
 
 /* Diagram text: the drawing is already mirrored (src/components/flow.js, sequence.js); the text inside reads right to left. */
 html[dir="rtl"] .am-diagram svg { direction: rtl; }
@@ -55,3 +57,18 @@ html[dir="rtl"] .am-rv-tag {
 html[dir="rtl"] .am-rv-a { padding-inline-start: 1.6em; }
 html[dir="rtl"] .am-rv-a em { color: var(--ink-2); }
 html[dir="rtl"] .am-rv-quote { margin-inline-start: 1em; padding-inline-start: 10px; border-inline-start: 3px solid var(--line-2); color: var(--ink-2); white-space: pre-wrap; }
+
+/* Video player (src/video/render.js): the scenes lay out right to left like a page, and what video.css places with left / right mirrors here.
+   A theme mirrors its own placements with video.rtlCss. The controls row stays left to right, as in common video players: the play
+   button on the left, then the clock, the progress bar with its chapter ticks, the speed and the export button. */
+html[dir="rtl"][data-video] .amv-ruler--top span + span, html[dir="rtl"][data-video] .amv-ruler--bottom span + span { border-left: 0; border-right: 1px solid var(--line); }
+html[dir="rtl"][data-video] .amv-titleblock { text-align: right; }
+/* The title block labels and the scene header numbers use the monospace font in video.css: sans here, as for the small page labels above. */
+html[dir="rtl"][data-video] .amv-titleblock b, html[dir="rtl"][data-video] .amv-scene-meta { font-family: var(--font-sans); letter-spacing: normal; }
+html[dir="rtl"][data-video] .amv-titleblock div + div { border-left: 0; border-right: 1px solid var(--line); }
+html[dir="rtl"][data-video] .amv-controls { direction: ltr; }
+
+/* Remark mode: a note inside a code block reads in the page direction, not in the left-to-right direction of the code. */
+html[dir="rtl"] pre .am-mark-note { direction: rtl; }
+/* A code block reads left to right, so its inline start is its left edge; the mark bar goes to the right like the other marks. */
+html[dir="rtl"] pre.am-mark { border-inline-start: 0; padding-inline-start: 0; border-inline-end: 3px solid var(--mark); }
