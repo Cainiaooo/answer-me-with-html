@@ -34,7 +34,7 @@ Full syntax for a component: `am help <component>`.
 
 Every page has a **Reply** button. The reader comments on any panel (the speech-bubble button in its title bar) and copies one Markdown reply back to the agent. Answers and comments survive a reload.
 
-The **Remark** button turns on block marking. While it is on, the reader clicks a paragraph, list item, quote, code block or table, picks a kind (suggestion, keep, question or concern) and may add a note. The mark shows on the block, survives a reload, and comes back in the reply under Remarks with the start of the block quoted. A page title or panel title takes no mark; use the panel comment for it.
+The **Remark** button turns on block marking. While it is on, the reader clicks a paragraph, list item, quote, code block, table or $$ formula block, picks a kind (suggestion, keep, question or concern) and may add a note. The mark shows on the block, survives a reload, and comes back in the reply under Remarks with the start of the block quoted. A page title or panel title takes no mark; use the panel comment for it.
 
 For a decision the reader must make, write an `ask` block in the panel it changes:
 
@@ -102,6 +102,31 @@ For something a diagram cannot show, such as a real screen, use an image that al
 - The tool does not generate images.
 
 Full syntax: `am help image`.
+
+## Math
+
+For a formula in the text, write LaTeX between dollar signs:
+
+```markdown
+The weight of a vertex is $w(v)=\prod_{u\prec v}N_u^{-1}$.
+
+$$
+\widehat g=\sum_{i=1}^{n} w_i\widehat A_i\nabla_\theta\log\pi_\theta(a_i\mid s_i)
+$$
+```
+
+- `$…$` is an inline formula. A block is a line with only `$$`, the TeX on the lines after it, and a line with only `$$`; one line `$$ E = mc^2 $$` also works. A block has no blank line inside it.
+- [Temml](https://temml.org) typeset the TeX when the page is made and writes MathML, so the page needs no script and no network. A page with math carries a small math font (about 9 KB) and its styles; a page without math is unchanged. The formula takes the colour of the text, so every theme and mode works.
+- A formula stays left to right on a right-to-left page.
+- A display formula that is wider than its panel scrolls inside the panel. An inline formula wraps after a relation or an operator (`=`, `+`) in Chrome and Firefox; Safari does not wrap it. Put a long formula in a `$$` block.
+- A dollar sign that is not a formula stays text. The opening `$` has a non-space after it. The closing `$` has a non-space before it and no digit after it, so `$5 and $10` and `$5-$10` stay text. A closing `$` with a letter (A-Z, a-z) or `_` after it does not close either, so `$PATH:$HOME` stays text; write `$n$-th`, not `$n$th`. Write `\$` for a dollar sign. An inline formula is on one line.
+- Math works in the text of paragraphs, lists, tables, quotes, headings, callouts, `kv`, `ask`, `timeline` and `tree`. Code spans, code blocks, diagrams (`flow`, `er`, `sequence` and the others) and `am video` take no math. In a table cell write `\vert x \vert`, not `|x|`.
+- If Temml cannot read the TeX, the page is still written. The formula shows as raw TeX in red and monospace (the message is in its tooltip), and the render prints a warning with the draft line, like `L12 [math] $\foo$ is shown as raw TeX: ...`. A page with a math warning does not open; fix the TeX and render again with `--replace`.
+- `\ref`, `\eqref` and `\label` need a script that the page does not have. They give a warning and show nothing. `\tag{1}` works in a `$$` block.
+- A Remark or a Reply quotes a formula as the TeX you wrote, with its `$` or `$$`: `Energy $E = mc^2$ holds`.
+- The writing check skips the TeX.
+
+Syntax in the CLI: `am help format`.
 
 ## Use the CLI directly, without an agent
 
@@ -207,12 +232,13 @@ am serve --public-url https://pages.example.com   # links use this address, for 
 
 ## Updating and cleaning up
 
-**Updating.** Updates are manual, and the tool tells you when one is out. Once a week, a background process downloads this project's `package.json` from GitHub to read the latest version number. Nothing about you or your pages is sent, and the page you asked for never waits on it. When there is a newer version, the next render adds a one-line notice and the agent asks whether you want to update. Turn this off with `/answer-me-with-html:config update_check off`.
+**Updating.** Updates are manual, and the tool tells you when one is out. Once a week, a background process downloads this project's `package.json` and `highlights.json` from GitHub to read the latest version number and its highlights. Nothing about you or your pages is sent, and the page you asked for never waits on it. When there is a newer version, the next render adds a one-line notice and the agent asks whether you want to update. Each page made while you are out of date also has a "New version" button at the start of the toolbar; click it for up to three highlights of the new version in the page language, the update command and a copy button. `am serve` takes the button out of a page it sends to another device (`--lan` or `--public-url`), and the page itself never goes online. Turn this off with `/answer-me-with-html:config update_check off`.
 
 | Installed with | Update with |
 | :--- | :--- |
 | `npx skills add` | `npx skills update answer-me-with-html -y`, or tell your agent "update answer-me-with-html" |
 | `git clone` + `npm link` | `git pull && npm install` in the repository |
+| DeepSeek Harness plugin | `dsh plugin --profile <profile> up <package>`; the update notice fills in the profile and the package |
 | Claude Code plugin | In a terminal run `claude plugin update answer-me-with-html@answer-me-with-html` (or open `/plugin` → Installed → Update now), then `/reload-plugins`. To update automatically, turn on auto-update for this marketplace in `/plugin` → Marketplaces. Claude Code leaves it off for third-party marketplaces |
 
 **Cleaning up.** Pages, videos and the narration cache build up in `~/.answer-me-with-html/`. If that folder grows past 200 MB, or passes 20 MB with no cleanup for 30 days, the agent asks once a week whether to clean it. Nothing is deleted without your OK.

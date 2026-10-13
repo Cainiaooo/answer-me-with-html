@@ -15,7 +15,7 @@
 <p align="center">
   <a href="https://github.com/QingYunA/answer-me-with-html/releases"><img src="https://img.shields.io/github/v/release/QingYunA/answer-me-with-html?style=flat-square&logo=github&labelColor=16181d&color=2ea44f" alt="Release"></a>
   <a href="https://github.com/QingYunA/answer-me-with-html/stargazers"><img src="https://img.shields.io/github/stars/QingYunA/answer-me-with-html?style=flat-square&logo=github&labelColor=16181d&color=2ea44f" alt="Stars"></a>
-  <img src="https://img.shields.io/badge/works%20with-Claude%20Code%20%C2%B7%20Codex%20%C2%B7%20Cursor%20%C2%B7%20OpenCode%20%C2%B7%20Pi-2ea44f?style=flat-square&labelColor=16181d" alt="Works with Claude Code, Codex, Cursor, OpenCode, Pi">
+  <img src="https://img.shields.io/badge/works%20with-Claude%20Code%20%C2%B7%20Codex%20%C2%B7%20Cursor%20%C2%B7%20OpenCode%20%C2%B7%20Pi%20%C2%B7%20DeepSeek%20Harness-2ea44f?style=flat-square&labelColor=16181d" alt="Works with Claude Code, Codex, Cursor, OpenCode, Pi, DeepSeek Harness">
   <a href="https://www.theagenticleaderboard.com/alternatives/answer-me-with-html/"><img src="https://www.theagenticleaderboard.com/badges/new/answer-me-with-html.svg" alt="The New 100"></a>
 </p>
 
@@ -88,6 +88,14 @@ token 数存在 [bench/corpus/tokens.json](bench/corpus/tokens.json) 里，运�
 ```
 /plugin marketplace add QingYunA/answer-me-with-html
 /plugin install answer-me-with-html@answer-me-with-html
+```
+
+### DeepSeek Harness 插件
+
+在终端里执行。换成你在用的 profile，自带的是 `web`：
+
+```bash
+dsh plugin --profile web add github:QingYunA/answer-me-with-html
 ```
 
 ### 一条命令
@@ -286,7 +294,13 @@ npm run snapshot  # 与 origin/main 对比生成的 HTML（重构不能改变它
 
 ## 社区
 
-也欢迎到 [LINUX DO](https://linux.do) 讨论和反馈。
+有问题、想分享做出来的页面、有功能建议，或者只是想打个招呼，都欢迎来。
+
+- [Discord](https://discord.gg/sYQuRRZNzQ)
+- QQ 群：`1127099407`
+- [LINUX DO](https://linux.do) 中文开发者论坛
+
+发现 bug 请提 [GitHub issue](https://github.com/QingYunA/answer-me-with-html/issues)。
 
 ## Star 历史
 
