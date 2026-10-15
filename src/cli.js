@@ -105,7 +105,7 @@ const IMAGE_HELP = `Images: a screenshot, photo or render that already exists as
 - Put the image alone on its line; the alt text becomes its caption, so write what the picture shows (the STE check reads it).
 - Use the absolute path. A relative path is read from the draft file's folder, or from the current folder when the draft comes from stdin. A space in the path is fine.
 - PNG, JPG, GIF, WebP, AVIF and SVG files up to 5 MB. The file is embedded in the page, which stays one file that opens offline.
-- http(s) URLs and data: URIs are left as they are. A URL needs the network when the page is opened.
+- Remote images do not load: the page blocks every remote request, so an http(s) or // URL shows nothing and the render warns about it. Save the image and use its local path. data: URIs work.
 - The page keeps the path of each image. am patch embeds the image again from the file, or from the page when the file is gone.
 - Images are for things a diagram cannot show, such as a real screen. Do not generate or invent images.`;
 
@@ -297,6 +297,12 @@ async function readStream(stream) {
   const chunks = [];
   for await (const chunk of stream) chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk);
   return Buffer.concat(chunks).toString('utf8');
+}
+
+// The line bin/am.js adds to an internal error on a Node.js older than 20, so the user knows to update Node rather than report a bug.
+export function oldNodeHint(version = process.version) {
+  if (Number(version.slice(1).split('.')[0]) >= 20) return '';
+  return `Answer me with HTML needs Node.js 20 or newer (found ${version}). Update Node.js: https://nodejs.org/`;
 }
 
 // Whether to open automatically: --open forces it > --no-open > AM_NO_OPEN (not 0) > CI environment > config open.
@@ -621,13 +627,13 @@ function emit(result, file, { print, env }, note = '') {
 function printComponentWarnings(notes = [], print) {
   if (!notes.length) return;
   print(`  diagram ${count(notes.length, 'warning')} (the page is written; fix the draft if that is not what you meant):`);
-  notes.toSorted((a, b) => a.line - b.line).slice(0, MAX_LISTED_WARNINGS).forEach((w) => print(`  L${w.line} [${w.component}] ${w.message}`));
+  [...notes].sort((a, b) => a.line - b.line).slice(0, MAX_LISTED_WARNINGS).forEach((w) => print(`  L${w.line} [${w.component}] ${w.message}`));
   if (notes.length > MAX_LISTED_WARNINGS) print(`  … ${notes.length - MAX_LISTED_WARNINGS} more`);
 }
 
 // Raw HTML the render changed (a placeholder shown as text, a tag or attribute removed). Not STE warnings: they never fail style: strict.
 function printHtmlWarnings(notes = [], print) {
-  const lines = [...new Set(notes.toSorted((a, b) => a.line - b.line).map((w) => `L${w.line} [html] ${w.message}`))];
+  const lines = [...new Set([...notes].sort((a, b) => a.line - b.line).map((w) => `L${w.line} [html] ${w.message}`))];
   if (!lines.length) return;
   print(`  html ${count(lines.length, 'warning')} (the page differs from the draft here; fix the draft if that is not what you meant):`);
   lines.slice(0, MAX_LISTED_WARNINGS).forEach((l) => print(`  ${l}`));
@@ -638,7 +644,7 @@ function printHtmlWarnings(notes = [], print) {
 function printMathWarnings(notes = [], print) {
   if (!notes.length) return;
   print(`  math ${count(notes.length, 'warning')} (the page is written; fix the TeX and render again):`);
-  notes.toSorted((a, b) => a.line - b.line).slice(0, MAX_LISTED_WARNINGS).forEach((w) => print(`  L${w.line} [math] ${w.message}`));
+  [...notes].sort((a, b) => a.line - b.line).slice(0, MAX_LISTED_WARNINGS).forEach((w) => print(`  L${w.line} [math] ${w.message}`));
   if (notes.length > MAX_LISTED_WARNINGS) print(`  … ${notes.length - MAX_LISTED_WARNINGS} more`);
 }
 
