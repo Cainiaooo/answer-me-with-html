@@ -1,28 +1,28 @@
 {
-  "version": "0.5.3",
+  "version": "0.5.5",
   "en": [
-    "Theme catalog: `am theme add comic --use` installs a theme from the website",
-    "Themes can restyle diagrams: nodes, edges, notes, highlights and shadows",
-    "Reply: see your reply laid out, and copy it from a bar at the bottom of the page"
+    "Bar, line and pie charts: write the numbers in a `chart` block",
+    "Clear all remarks on a page with one button",
+    "`am serve --secret-file` keeps page links working after a restart"
   ],
   "zh": [
-    "主题库：`am theme add comic --use` 从官网安装主题",
-    "主题可以改图了：节点、连线、注释框、高亮和阴影",
-    "回复：直接看到排好版的回复，在页面底部一栏一键复制"
+    "柱状图、折线图、饼图：把数字写进 `chart` 代码块",
+    "一个按钮清除页面上的所有标注",
+    "`am serve --secret-file` 让页面链接在重启后依然有效"
   ],
   "zh-Hant": [
-    "主題庫：`am theme add comic --use` 從官網安裝主題",
-    "主題可以改圖了：節點、連線、註解框、醒目標示和陰影",
-    "回覆：直接看到排好版的回覆，在頁面底部一欄一鍵複製"
+    "長條圖、折線圖、圓餅圖：把數字寫進 `chart` 程式碼區塊",
+    "一個按鈕清除頁面上的所有標註",
+    "`am serve --secret-file` 讓頁面連結在重新啟動後依然有效"
   ],
   "ja": [
-    "テーマカタログ：`am theme add comic --use` でサイトからテーマをインストール",
-    "テーマで図も変わる：ノード、線、注記、強調、影",
-    "返信：整形された返信を確認し、ページ下部のバーからワンクリックでコピー"
+    "棒グラフ・折れ線グラフ・円グラフ：数値を `chart` ブロックに書くだけ",
+    "ボタン一つでページの注記をすべて消去",
+    "`am serve --secret-file` で再起動後もページのリンクが有効"
   ],
   "he": [
-    "קטלוג ערכות עיצוב: `am theme add comic --use` מתקין ערכת עיצוב מהאתר",
-    "ערכת עיצוב משנה גם תרשימים: צמתים, קווים, הערות, הדגשות וצללים",
-    "תגובה: רואים את התגובה מעוצבת ומעתיקים אותה מסרגל בתחתית הדף"
+    "תרשימי עמודות, קו ועוגה: כתבו את המספרים בבלוק `chart`",
+    "ניקוי כל הסימונים בדף בלחיצה אחת",
+    "`am serve --secret-file` שומר על קישורי הדפים אחרי הפעלה מחדש"
   ]
 }

@@ -1,9 +1,9 @@
 // am CLI: render / patch / video / lint / theme / list / help. main() takes injected streams and environment variables, for testing.
 
 import { parseArgs } from 'node:util';
-import { readFileSync, writeFileSync, mkdirSync, existsSync, rmSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, existsSync, rmSync, statSync } from 'node:fs';
 import { VERSION } from './assets.js';
-import { join, resolve, dirname, basename, sep } from 'node:path';
+import { join, resolve, dirname, basename, extname, sep } from 'node:path';
 import { spawn } from 'node:child_process';
 import { renderDoc, RenderError, LintError } from './render.js';
 import { parseDoc, ParseError, CHOICES, VOICES } from './parse.js';
@@ -22,8 +22,8 @@ import { exportMp4, exportWebm, ExportError } from './video/export.js';
 import { afterRender, clean, usage, mb, CLEAN } from './housekeeping.js';
 import { runUpdateCheck, pageUpdate } from './update.js';
 import { amHome, readConfig, setConfig, resetConfig, configChoices, CONFIG_KEYS, ConfigError } from './config.js';
-import { ensureHome } from './home.js';
-import { hasCommand, renameOver } from './sys.js';
+import { ensureHome, tempHome, checkedTempHome, UnsafeTempHome } from './home.js';
+import { hasCommand, renameOver, isDenied } from './sys.js';
 import { loadMath } from './math-load.js';
 import { replacePanel, PatchError } from './patch.js';
 import { readState } from './state.js';
@@ -38,16 +38,16 @@ const MAX_LISTED_WARNINGS = 20;
 const USAGE = `Answer me with HTML ${VERSION} — renders a Markdown draft into a single-file HTML explainer page
 
 Usage:
-  am render <file|->  [-o <path>] [--replace <page>] [--no-open] [--theme ${['auto', ...themeNames('page')].join('|')}]
+  am render <file|->  [-o <file>] [--replace <page>] [--no-open] [--theme ${['auto', ...themeNames('page')].join('|')}]
                       [--template sheet|doc] [--style off|80|strict] [--mode auto|light|dark]
   am patch  <html> --panel <title> [file|-] [--from file] [--theme …] [--no-open]
                                                   replace one ## panel of an existing page and overwrite that HTML in place
-  am video  <file|->  [-o <path>] [--voice auto|elevenlabs|local|system|off] [--mp4] [--webm] [--no-open]
+  am video  <file|->  [-o <file>] [--voice auto|elevenlabs|local|system|off] [--mp4] [--webm] [--no-open]
                       [--theme ${['auto', ...themeNames('video')].join('|')}] [--mode light|dark]
                                                   render a video draft into a 3b1b-style explainer video player page (--mp4 / --webm also save a video file)
   am lint   <file|->  [--style off|80|strict]     run only the STE controlled-writing check
   am config [set <key> <value> | get <key> | reset [key]]  show or change settings
-  am serve  [--port 8765] [--lan] [--public-url <origin>]  serve pages over http on 127.0.0.1 (--lan: on the local network); am render then prints a link:
+  am serve  [--port 8765] [--lan] [--public-url <origin>] [--secret-file <path>]  serve pages over http on 127.0.0.1 (--lan: on the local network); am render then prints a link:
   am clean  [--days 30] [--all] [--dry-run]       delete old pages, old videos and the voice-over cache
   am theme check <name|file.json> [--no-open]     check a theme's colors and contrast, and render specimen pages
   am theme add <name> [--use] [--force]           install a theme from the catalog (answer-me-with-html.com/themes/); --use makes it the default
@@ -56,6 +56,7 @@ Usage:
   am help [component|format|code|image|video|patch|theme]  show component syntax / page draft format / code block / image syntax / video draft format / patch / theme usage
 
 - A file argument of - reads from stdin (good for heredoc: am render - <<'EOF' ... EOF).
+- -o names an output file, for example -o page.html; it does not name a folder.
 - Output goes to ~/.answer-me-with-html/pages/ by default (change it with the AM_HOME environment variable).
 - A page with STE or code warnings does not open. Fix the draft and render again with --replace <page>: the earlier page is deleted once the new one is written.
 - Set auto-open, the default theme and more with am config; --open / --no-open apply to this run only.
@@ -180,7 +181,7 @@ Client -> Server: ACK
 
 - "## " starts a scene; a scene holds components or Markdown (the picture), and lines that start with > are narration (one beat per line).
 - When narration line N plays, step N of the picture appears: in flow / er / sequence / tree each source line is one step;
-  timeline, limits, table rows, list items and paragraphs step item by item. With more steps than narration lines, the steps are spread across the lines;
+  timeline, limits, chart rows, table rows, list items and paragraphs step item by item. With more steps than narration lines, the steps are spread across the lines;
   with more narration lines than steps, the extra first lines act as an opening and show nothing new.
 - Write [name] in narration: the camera zooms in on the element with that name and highlights it, and the word turns yellow in the caption.
 - Nodes / participants with the same name in adjacent scenes move smoothly from the old position to the new one (cross-scene morph).
@@ -233,6 +234,7 @@ export async function main(argv, io = {}) {
         port: { type: 'string' },
         lan: { type: 'boolean' },
         'public-url': { type: 'string' },
+        'secret-file': { type: 'string' },
         all: { type: 'boolean' },
         'dry-run': { type: 'boolean' },
         use: { type: 'boolean' },
@@ -262,7 +264,7 @@ export async function main(argv, io = {}) {
     case 'config': return cmdConfig([arg, ...rest].filter((x) => x !== undefined), ctx);
     case 'theme': return cmdTheme(arg, rest[0], opts, ctx);
     case 'clean': return cmdClean(opts, { print, fail, env });
-    case 'serve': return cmdServe(opts, { print, fail, env });
+    case 'serve': return cmdServe(opts, ctx);
     case '__update-check': return (await runUpdateCheck(amHome(env))) ? 0 : 1;
     case 'list': return cmdList(ctx), 0;
     case 'help': return cmdHelp(arg, { print, fail });
@@ -318,7 +320,7 @@ async function cmdRender(src, opts, ctx, baseDir) {
   const { fail, print } = ctx;
   const replaced = opts.replace === undefined ? null : pagePath(opts.replace, ctx);
   if (replaced === false) {
-    fail(`✗ --replace takes a page that am render wrote (a .html file in ${join(amHome(ctx.env), 'pages')})`);
+    fail(`✗ --replace takes a page that am render wrote (a .html file in ${join(amHome(ctx.env), 'pages')} or ${join(tempHome(), 'pages')})`);
     return 2;
   }
   const config = loadConfig(ctx);
@@ -331,13 +333,16 @@ async function cmdRender(src, opts, ctx, baseDir) {
     return reportError(e, fail);
   }
   const file = outputPath('pages', result.meta.title, opts, ctx);
-  emit(result, file, ctx);
+  if (!file) return 2;
+  const written = emit(result, file, ctx, { fallback: opts.out ? undefined : 'pages' });
+  if (!written) return 1;
+  if (opts.out && !extname(file)) print('! -o names a file without an extension; use .html for an HTML page');
   // Delete the earlier attempt only now: a render that fails above keeps it.
-  if (replaced && replaced !== resolve(file)) rmSync(replaced, { force: true });
+  if (replaced && replaced !== resolve(written)) removeEarlier(replaced, ctx);
   // A page with STE, code or math warnings is likely to be rendered again, so it opens only when --open asks for it.
   const held = !opts.open && hasRetryWarnings(result) && shouldOpen(opts, ctx.env, config.values);
-  if (held) print(`  Not opened because of the warnings; to render again, add --replace ${file}`);
-  return finish(file, held ? { ...opts, 'no-open': true } : opts, config, ctx);
+  if (held) print(`  Not opened because of the warnings; to render again, add --replace ${written}`);
+  return finish(written, held ? { ...opts, 'no-open': true } : opts, config, ctx);
 }
 
 // The new-version button for the page, from the version the background check last saw (src/update.js).
@@ -345,10 +350,12 @@ const updateFor = (config, { env, io }) => pageUpdate(readState(amHome(env)), VE
 
 const hasRetryWarnings = (result) => result.warnings.length > 0 || (result.stats.codeWarnings ?? []).length > 0 || (result.stats.mathWarnings ?? []).length > 0;
 
-// The absolute path of a page, or false when arg does not name a .html file directly inside pages/. The file may be gone.
+// The absolute path of a page, or false when arg does not name a .html file directly inside pages/ of the data directory or of the
+// temporary folder (where a page goes when the data directory is not writable). The file may be gone.
 function pagePath(arg, { env, io }) {
   const path = resolve(io.cwd ?? process.cwd(), arg);
-  return dirname(path) === resolve(amHome(env), 'pages') && basename(path).endsWith('.html') ? path : false;
+  const folders = [resolve(amHome(env), 'pages'), resolve(tempHome(), 'pages')];
+  return folders.includes(dirname(path)) && basename(path).endsWith('.html') ? path : false;
 }
 
 const PATCH_HELP = `Replace one panel of a rendered page in place
@@ -404,8 +411,8 @@ Pick it like a built-in theme: theme: notes in the draft, --theme notes, or am c
   Target these classes (they stay stable): ${THEME_SELECTORS.join(' ')}.
   Keep the file self-contained: no url() or image-set() to http(s) or //, no @import, no @font-face, no backslash escapes. A link would send a request each time a page opens.
   am theme check warns about them; the catalog and am theme add reject them.
-- Diagram tokens (optional): node-fill node-stroke node-width node-radius node-shadow node-text, hi-fill hi-stroke hi-text, edge-color edge-width edge-label, actor-fill actor-stroke actor-text, note-fill note-stroke note-width note-radius, cluster-fill cluster-stroke, lifeline-color (each with a -- prefix).
-  They restyle what is inside flow, sequence and er diagrams and tree boxes, and each defaults to today's look. Widths and radii are a number or px / em (a bare number is px);
+- Diagram tokens (optional): node-fill node-stroke node-width node-radius node-shadow node-text, hi-fill hi-stroke hi-text, edge-color edge-width edge-label, actor-fill actor-stroke actor-text, note-fill note-stroke note-width note-radius, cluster-fill cluster-stroke, lifeline-color, series-1 series-2 series-3 series-4 series-5 series-6 (each with a -- prefix).
+  They restyle what is inside flow, sequence and er diagrams and tree boxes, and each defaults to today's look. The series tokens color the bars, lines and slices of a chart: a fixed palette is the default (a light set and a dark set); a series color below 3:1 against --paper in light or dark gives a warning. Widths and radii are a number or px / em (a bare number is px);
   --node-shadow is none or drop-shadow(...), like drop-shadow(3px 3px 0 #111). Do not write diagram selectors in css. There is no token for fonts: diagram text is measured for the sans font.
 - video (optional): video-only variables (--v-stage, --v-title-font, --v-cap-fg, --v-cap-bg, --v-glow) and & css for am video.
 - A page carries the built-in themes plus its own theme, so it opens anywhere; readers without your fonts see the fallback.
@@ -494,15 +501,17 @@ async function cmdPatch(htmlArg, fromArg, opts, ctx) {
     }
     return reportError(e, fail);
   }
-  emit(result, file, ctx, video ? ' (an MP4 or WebM with the same name is not updated; run am video --mp4 or --webm again if you need it)' : '');
+  if (!emit(result, file, ctx, { note: video ? ' (an MP4 or WebM with the same name is not updated; run am video --mp4 or --webm again if you need it)' : '', inPlace: true })) return 1;
   return finish(file, opts, config, ctx);
 }
 
 async function cmdVideo(src, opts, ctx) {
-  const { fail } = ctx;
+  const { fail, print } = ctx;
   const config = loadConfig(ctx);
   const voice = opts.voice ?? config.values.voice;
   if (!validVoice(voice, fail)) return 2;
+  let file = opts.out ? outputPath('videos', '', opts, ctx) : null;
+  if (opts.out && !file) return 2;
   let result;
   try {
     result = await buildVideo(src, voice, opts, config, ctx);
@@ -511,12 +520,15 @@ async function cmdVideo(src, opts, ctx) {
     fail(`✗ Voice-over failed: ${e.message}. Add --voice off for captions only`);
     return 1;
   }
-  const file = outputPath('videos', result.meta.title, opts, ctx);
-  emit(result, file, ctx);
+  file ??= outputPath('videos', result.meta.title, opts, ctx);
+  if (!file) return 2;
+  const written = emit(result, file, ctx, { fallback: opts.out ? undefined : 'videos' });
+  if (!written) return 1;
+  if (opts.out && !extname(file)) print('! -o names a file without an extension; use .html for an HTML page');
   for (const format of ['mp4', 'webm']) {
-    if (opts[format] && !(await exportVideo(file, result.wav, format, ctx))) return 1;
+    if (opts[format] && !(await exportVideo(written, result.wav, format, ctx))) return 1;
   }
-  return finish(file, opts, config, ctx);
+  return finish(written, opts, config, ctx);
 }
 
 function validVoice(voice, fail) {
@@ -527,10 +539,9 @@ function validVoice(voice, fail) {
 
 async function buildVideo(src, voice, opts, config, { fail, env, io, themes }) {
   const provider = io.ttsProvider !== undefined ? io.ttsProvider : pickProvider(voice, env);
-  if (provider) ensureHome(amHome(env)); // the narration cache lives in the data directory
   const result = await renderVideo(src, {
     provider,
-    cacheDir: join(amHome(env), 'cache', 'tts'),
+    cacheDir: provider ? narrationCache(amHome(env)) : undefined,
     defaults: { style: config.values.style, theme: config.values.theme, mode: config.values.mode },
     overrides: { style: opts.style, theme: opts.theme, mode: opts.mode },
     previousLanguage: opts.previousLanguage,
@@ -538,6 +549,18 @@ async function buildVideo(src, voice, opts, config, { fail, env, io, themes }) {
     themes,
   });
   return { ...result, voiceName: voiceSummary(provider, result.captionsOnly) };
+}
+
+// The narration cache lives in the data directory. A data directory the session may not write to gives no cache: the video is
+// still made, and a render after it synthesizes every line again.
+function narrationCache(home) {
+  try {
+    ensureHome(home);
+  } catch (e) {
+    if (!isDenied(e)) throw e;
+    return undefined;
+  }
+  return join(home, 'cache', 'tts');
 }
 
 // The voice line of the one-line summary: the provider, and the languages that kept captions only because no voice is
@@ -579,8 +602,15 @@ function themeWarnings({ fail, themes }) {
 }
 
 // Output path: the -o path when given, otherwise pages/ or videos/ in the data directory. io.now can inject a clock.
-function outputPath(dir, title, opts, { env, io }) {
-  if (opts.out) return resolve(io.cwd ?? process.cwd(), opts.out);
+function outputPath(dir, title, opts, { env, io, fail }) {
+  if (opts.out) {
+    const file = resolve(io.cwd ?? process.cwd(), opts.out);
+    if (statSync(file, { throwIfNoEntry: false })?.isDirectory()) {
+      fail('✗ -o names a folder; give a file path, for example -o page.html');
+      return null;
+    }
+    return file;
+  }
   return join(amHome(env), dir, `${slug(title)}-${stamp(new Date(io.now?.() ?? Date.now()))}.html`);
 }
 
@@ -602,12 +632,61 @@ function writePage(file, html, env) {
   }
 }
 
+// Write the page where it was planned. A session that may not write there (a host sandbox that allows writes only in the workspace
+// and the temporary folder) gets the page in a private folder of the temporary folder instead, but only when fallback ('pages' or
+// 'videos') names the default location's folder: a page the user named with -o, or one patched in place, never moves. Returns
+// { file, notice } with the path actually written, or null after one line that says what to run instead.
+// inPlace: am patch, which takes no -o, so its hint does not name -o.
+function savePage(html, file, { fallback, inPlace }, { fail, env }) {
+  const home = amHome(env);
+  const inHome = resolve(file).startsWith(resolve(home) + sep);
+  const hint = (path) => {
+    if (inPlace) return 'Copy the page to a folder this session can write to and patch the copy';
+    return inHome
+      ? `If this session can write only inside the workspace, run the command again with -o "<workspace>/.tmp/answers/${basename(path)}"`
+      : 'Give -o a file in a folder this session can write to';
+  };
+  const refuse = (path, e) => fail(`✗ Cannot write the page: permission denied (${e.code}) ${path}. ${hint(path)}`);
+  try {
+    writePage(file, html, env);
+    return { file };
+  } catch (e) {
+    if (!isDenied(e)) throw e;
+    if (!(fallback && inHome)) return refuse(file, e), null;
+    const spare = join(tempHome(), fallback, basename(file));
+    try {
+      checkedTempHome({ create: true });
+      writePage(spare, html, env);
+      return { file: spare, notice: `  ! ${home} is not writable (${e.code}): saved in the temporary folder, which the system may clear` };
+    } catch (t) {
+      if (t instanceof UnsafeTempHome) fail(`✗ Cannot write the page: ${home} is not writable (${e.code}) and ${t.dir} is not a private folder of this user. Give -o a file in a folder this session can write to`);
+      else if (isDenied(t)) refuse(spare, t);
+      else throw t;
+      return null;
+    }
+  }
+}
+
+// The earlier page of --replace goes away once the new one is written. A folder that cannot be changed keeps it, with one line.
+function removeEarlier(file, { fail }) {
+  try {
+    rmSync(file, { force: true });
+  } catch (e) {
+    if (!isDenied(e)) throw e;
+    fail(`! Kept the earlier page ${file} (permission denied, ${e.code})`);
+  }
+}
+
 // Write the page, print the path, a one-line summary (note follows the summary) and writing warnings. Shared by render / video / patch.
-function emit(result, file, { print, env }, note = '') {
-  writePage(file, result.html, env);
-  print(`✓ ${file}`);
+// Returns the path written, or null when the page could not be written (see savePage).
+function emit(result, file, ctx, { note = '', fallback, inPlace } = {}) {
+  const { print, env } = ctx;
+  const saved = savePage(result.html, file, { fallback, inPlace }, ctx);
+  if (!saved) return null;
+  print(`✓ ${saved.file}`);
+  if (saved.notice) print(saved.notice);
   // With am serve running, a page inside the data directory also gets an http link.
-  const link = serveLink(amHome(env), file);
+  const link = serveLink(amHome(env), saved.file);
   if (link) print(`  link: ${link}`);
   print(`  ${summaryLine(result)}${note}`);
   // The code the page now holds, so the user can check it before sharing the page.
@@ -621,6 +700,7 @@ function emit(result, file, { print, env }, note = '') {
   printHtmlWarnings(result.stats.htmlWarnings, print);
   printMathWarnings(result.stats.mathWarnings, print);
   printWarnings(result.warnings, print, result.meta.style);
+  return saved.file;
 }
 
 // What a component noticed in its own block (a group box that would be empty after a change). The page is still written.
@@ -688,23 +768,38 @@ function cmdClean(opts, { print, fail, env }) {
   const days = opts.days === undefined ? CLEAN.days : Number(opts.days);
   const home = amHome(env);
   const before = usage(home);
+  // The temporary folder holds pages written while the data directory was not writable. Only a folder that exists and is private.
+  const temp = existingTempHome();
+  const tempBefore = temp && usage(temp);
   const dry = Boolean(opts['dry-run']);
-  const r = clean(home, { days, all: Boolean(opts.all), dryRun: dry });
+  const r = clean(home, { days, all: Boolean(opts.all), dryRun: dry, temp });
   const scope = opts.all ? 'all pages and videos' : `pages and videos older than ${count(days, 'day')}`;
   print(`Data directory: ${home} (${mb(before.total)} in total: ${count(before.pages.count, 'page')}, ${count(before.videos.count, 'video')}, ${mb(before.cache.bytes)} voice-over cache)`);
+  if (temp) print(`Temporary folder: ${temp} (${mb(tempBefore.total)} in total: ${count(tempBefore.pages.count, 'page')}, ${count(tempBefore.videos.count, 'video')})`);
   print(dry
     ? `Would delete ${count(r.files, 'file')}, freeing ${mb(r.bytes)} (${scope} + voice-over cache). Run without --dry-run to delete.`
     : `✓ Deleted ${count(r.files, 'file')}, freeing ${mb(r.bytes)} (${scope} + voice-over cache). Settings were kept.`);
   return 0;
 }
 
-function cmdServe(opts, { print, fail, env }) {
+// The temporary folder when it already exists and is private to this user, otherwise null. am clean never creates it.
+function existingTempHome() {
+  try {
+    return checkedTempHome();
+  } catch (e) {
+    if (e instanceof UnsafeTempHome || isDenied(e)) return null;
+    throw e;
+  }
+}
+
+function cmdServe(opts, { print, fail, env, io }) {
   if (opts.port !== undefined && !(/^\d+$/.test(opts.port.trim()) && Number(opts.port) <= 65535)) {
     fail('✗ --port needs a number from 0 to 65535 (0 picks a free port)');
     return 2;
   }
   const port = opts.port === undefined ? DEFAULT_PORT : Number(opts.port);
-  return runServe({ home: amHome(env), port, lan: !!opts.lan, publicUrl: opts['public-url'], print, fail });
+  const secretFile = opts['secret-file'] === undefined ? undefined : resolve(io?.cwd ?? process.cwd(), opts['secret-file']);
+  return runServe({ home: amHome(env), port, lan: !!opts.lan, publicUrl: opts['public-url'], secretFile, print, fail });
 }
 
 function cmdLint(src, opts, { print, fail }) {
